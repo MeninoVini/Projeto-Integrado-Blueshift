@@ -1,1 +1,550 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ## Projeto Grupo A - Notebook de extração versão 1 gerado Wilton Ago/2021
+# MAGIC ## Documento blu-grupoa-atletaFaltante_dePdf01
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC O objetivo deste programa é extrair dados publicados no Diario Oficial da Uniao link: "https://pesquisa.in.gov.br/imprensa/jsp/visualiza/index.jsp?data=13/05/2021&jornal=515&pagina=43&totalArquivos=412", com a relação dos atletas. Nesta base, encotramos a relação dos atletas da sequência 3001 a 4000 que estavam na relação "PORTARIA MC Nº 629, DE 12 DE MAIO DE 2021" link: "https://www.in.gov.br/en/web/dou/-/portaria-mc-n-629-de-12-de-maio-de-2021-319600420". No Art. 1º menciona um total de 7197 atletas mas nesta páginas publicaram 5295. Encontramos o restante na página mencionada acima.
+# MAGIC 
+# MAGIC Do link https://pesquisa.in.gov.br/imprensa/jsp/visualiza/index.jsp?data=13/05/2021&jornal=515&pagina=43&totalArquivos=412, selecionamos as páginas 43 a a 42 e gravamos as páginas selecionadas em arquivos no formato PDF.
+# MAGIC 
+# MAGIC Este notebook é o processo para extrair os registros do arquivo PDF e gerar o DataFrame no formato CSV. No processo utilizamos as libs pdflumber, pandas e regex para ler e tratar cada linha de registro. Os registros que passavam pela validação primaria do REGEX, passou pela segunda validação de unidades de federacao (UF Brasil)
+# MAGIC - Extraidos e formatados com sucesso (OK na validacao lista UF)
+# MAGIC - Extraidos com rejeicao de UF (NOK na validacao lista UF)
+# MAGIC - Rejeitados - 
+# MAGIC 
+# MAGIC Alteracao 2021-08-31 - Wilton - (- Selecionar NroAtleta de 3001 a 4000, - Retirar a coluna TPAtleta, excluir arquivos intermediarios gerados no processo)
+
+# COMMAND ----------
+
+import re
+import requests
+import pdfplumber
+import pandas as pd
+from collections import namedtuple
+
+# COMMAND ----------
+
+tbuf = ['RO', 'AC', 'AM', 'RR', 'PA' , 'AP', 'TO', 'MA', 'PI', 'CE' , 'RN', 'PB', 'DF', 'PE', 'AL', 'SE', 'BA', 'MG', 'MS', 'ES', 'RJ' , 'SP', 'PR', 'SC', 'RS', 'MT', 'GO']
+
+# COMMAND ----------
+
+# Define nome das colunas
+Row = namedtuple('Row', 'N_Ordem Nome CPF Modalidade Classificacao Coletividade Categoria UF Cidade ')
+
+# COMMAND ----------
+
+# Regex - Regras para selecao das linhas 
+
+# Regex que formata corretamente ate o grupo 09 (todas as colunas) - mas rejeita alguns
+linre_re = re.compile(r'(\d+)\s(.*) (.*\d{03}\-\d{02}) (.*) (....ugar)? (.{3,10}) (.{9}) (.{2}) (.*)')
+
+# Regex que formata corretamente ate o grupo 07 (classificacao)
+linre_re = re.compile(r'(\d+)\s(.*) (.*\d{03}\-\d{02}) (.*) (....ugar)? (.{3,10}) (.*) (.*) (.*)')
+print(linre_re)
+
+
+# pegar da 4 a 8 coluna a coluna UF (maiucula com 2 posicoes)
+linre_reuf = re.compile(r'(.*) (....ugar)? (.{3,10}) (.{9}) (.{2}) (.*)')
+print(linre_reuf)
+
+
+# COMMAND ----------
+
+dir = '/dbfs/FileStore/'
+
+# COMMAND ----------
+
+def tratAtlFaltantes(arqpdf):
+    
+    arqname =  dir + arqpdf + ".pdf"
+    #arqnome = "/dbfs/FileStore/atlfalt01.pdf"
+    rejeitado = []
+    datawso = []
+    datufrej = []
+    cont = ac_aceitos = ac_rejeitado  = ac_rejuf = 0
+    ac_aceitos 
+    with pdfplumber.open(arqname) as pdf:
+        page = pdf.pages[0]
+        text = page.extract_text(x_tolerance=2, y_tolerance=0)
+        #print(text[:300])
+
+    for line in text.split('\n'):
+        lidet=[]
+
+        cont += 1
+        #print(f'Reg.Lido: {cont}, line Type/len {type(line)}/{len(line)},===>{line}<=== ')
+
+        lidet = linre_re.search(line)
+        lidetuf = linre_reuf.search(line)
+        
+        if lidet:
+            in_lines = True
+            #print()
+            #print(f'Reg.Lido Aceitos: {cont}, lidet Type/len {type(lidet)}//{len(line)}, ====>{lidet}<=======   ')
+            
+            linesplit = line.split()
+
+            #print(f'- linesplit Type/len {type(linesplit)}/{len(linesplit)}===>{linesplit}<=======  ')
+
+            # a, b, c, d, e, f, g, h, *i = linesplit
+            # print(f' a=`{a}  b={b} c={c}  d={d} e={e}  ')
+            # print(f' f={f}  g={g}    h{h}  i={i}'  )
+            Seq = lidet.group(1)
+            if type(Seq) == str:
+                 Seq = int(Seq)
+            #print(f' Seq   type {type(Seq)}   type lidet.group(1) {type(lidet.group(1))}  ')
+            Nome = lidet.group(2)
+            CPF = lidet.group(3) 
+            Modalidade = lidet.group(4)
+            Classificação = lidet.group(5)
+            Coletividade = lidet.group(6)
+            CatIdade = lidet.group(7)
+            UF = lidet.group(8).strip() 
+            Cidade = lidet.group(9)
+            TPAtleta = 'none none'
+            if Seq <= 366:
+                TPAtleta = 'Atleta Olímpico e Paralímpico'
+            elif Seq <= 1566:
+                TPAtleta = 'Atleta Internacional'
+            elif Seq <= 6425:
+                TPAtleta = 'Atleta Nacional'            
+            elif Seq <= 7197:
+                TPAtleta = 'Atleta Estudantil'
+            
+            # trecho para resgatar UF para os casos que regex não estruturou corretamente os
+            # grupos (a UF ficou junto com a categoria)
+            if UF not in tbuf: 
+                CatIdade = CatIdade.strip() 
+                linaux = CatIdade.split()
+                
+                #print(f' CatIdade {CatIdade} {len(linaux)} linaux {linaux}   ')
+                
+                # Tentativa de resgartar UF do Grupo07 do Regex
+                if len(linaux) > 1:
+                    CatIdade = linaux[0].strip()
+                    Cidade = UF + ' ' + Cidade
+                    ufaux = linaux[1].strip()                   
+                    UF = ufaux
+                    if UF not in tbuf:
+                        print(f'ufNOK na segunda Regra UF==>{ufaux} {len(ufaux)}  CatIdade {CatIdade}  Cidade {Cidade}   ')
+                    
+                        
+                         
+            regsai = Row(Seq, Nome, CPF, Modalidade, Classificação, Coletividade, CatIdade, UF, Cidade)
+            if UF in tbuf:
+                # selecionar as sequencias de 3001 a 4000
+                if Seq > 3000 and Seq < 4001:
+                    ac_aceitos += 1
+                    datawso.append(regsai)
+                else:
+                    ac_rejeitado += 1
+                    text1 = 'Rejeitado Seq < 300 ou > 4000 ' + str(cont) + ' ' + str(regsai)
+                    print(text1)
+                    rejeitado.append(text1)
+                
+            else:
+                ac_rejuf += 1
+                ac_rejeitado += 1
+                text1 = str(cont) + ' ' + str(line)
+                #print(f' UF {lidet.group(8)} len {len(lidet.group(8))}   UF len {len(UF)} ')
+                rejeitado.append(text1)
+                text1 = 'Rejeitado por UF: ' + str(cont) + ' ' + str(regsai)
+                print(text1)
+                rejeitado.append(text1)
+                # gravar registros UF rejeitadas para validar no Dataframe
+                datufrej.append(regsai)
+        else:
+            ac_rejeitado += 1
+            text1 = str(cont) + ' ' + str(line)
+            rejeitado.append(text1)
+
+    print('=='*40) 
+    print(f' Arquivo: {arqname} Lidos: {cont} Aceitos: {ac_aceitos} Rejeitados {ac_rejeitado}  UF Invalida {ac_rejuf}  ')
+    print()
+    
+    return datawso, rejeitado, datufrej
+   
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Tratamento dos arquivos pdf
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 01
+
+arqpdf = 'atlfalt01'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)               
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 02
+
+arqpdf = 'atlfalt02'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)         
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 03
+
+arqpdf = 'atlfalt03'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)         
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 04
+
+arqpdf = 'atlfalt04'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)            
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 05
+
+arqpdf = 'atlfalt05'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)              
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 06
+
+arqpdf = 'atlfalt06'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)            
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 07
+
+arqpdf = 'atlfalt07'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)            
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 08
+
+arqpdf = 'atlfalt08'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)             
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 09
+
+arqpdf = 'atlfalt09'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)              
+
+# COMMAND ----------
+
+# Tratamento do pdf Atleta faltante 10
+
+arqpdf = 'atlfalt10'
+datawso, rejeitado, datufrej = tratAtlFaltantes(arqpdf)
+
+arqrej = arqpdf + 'Rej'
+# Grava saida apenas com os registros rejeitados por UF para validar no DataFrame
+arqrejuf = arqrej + 'uf'
+
+dfaceito = pd.DataFrame(datawso)
+dfufrej =  pd.DataFrame(datufrej)
+print(f' =======> Head Aceitos    <=======  datawso   len {len(datawso)}   ')
+dfaceito.head(5)
+
+print(f' =======> Head Rejeitados <=======  rejeitado len {len(rejeitado)}   ')
+dfrejei = pd.DataFrame(rejeitado)
+dfrejei.head(5)
+
+
+dfaceito.to_csv(dir+arqpdf+".csv", index=False)
+dfufrej.to_csv(dir+arqrejuf+".csv", index=False)
+dfrejei.to_csv(dir+arqrej+".csv", index=False)               
+
+# COMMAND ----------
+
+# Concatena os arquivos gerados dos extraidos OK
+
+all_files = ['atlfalt01', 'atlfalt02', 'atlfalt03', 'atlfalt04', 'atlfalt05',
+            'atlfalt06', 'atlfalt07', 'atlfalt08','atlfalt09', 'atlfalt10']
+
+li = []
+
+for arq in all_files:
+    
+    filename = dir + arq + '.csv'
+    print(f' filename {filename}  ')
+    df = pd.read_csv(filename, index_col=None, header=0)
+    li.append(df)
+
+dfok = pd.concat(li, axis=0, ignore_index=True)
+
+
+
+# COMMAND ----------
+
+len(dfok)
+
+# COMMAND ----------
+
+dfok.head()
+
+# COMMAND ----------
+
+dfok.display(10)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Convertendo o dfok (pandas) para df_spark (spark)
+
+# COMMAND ----------
+
+df_spark = spark.createDataFrame(dfok)
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC #### Salvando o df_spark em .csv no DBFS
+
+# COMMAND ----------
+
+df_spark.repartition(1).write.option("header",True).mode("overwrite").option('sep',';').csv("/FileStore/producao/atletas1K.csv")
+
+# COMMAND ----------
+
+dfok.columns
+
+# COMMAND ----------
+
+dfok.to_csv("atletafaltantes.csv", index=False)
+
+# COMMAND ----------
+
+# leitura do arquivo gerado
+dfcsv =  pd.read_csv("atletafaltantes.csv", index_col=None, header=0)
+
+# COMMAND ----------
+
+len(dfcsv)
+
+# COMMAND ----------
+
+dfcsv.columns
+
+# COMMAND ----------
+
+dfcsv.isnull().sum()
+
+# COMMAND ----------
+
+# Concatena os arquivos gerados dos extraidos nOK ==> dfnok
+
+all_files = ['atlfalt01Rejuf', 'atlfalt02Rejuf', 'atlfalt03Rejuf', 'atlfalt04Rejuf', 'atlfalt05Rejuf',
+             'atlfalt06Rejuf', 'atlfalt07Rejuf', 'atlfalt08Rejuf', 'atlfalt09Rejuf', 'atlfalt10Rejuf']
+
+li = []
+
+for arq in all_files:
+    filename = dir + arq + '.csv'
+    try:
+        print(f' filename {filename}  ')
+        df = pd.read_csv(filename, index_col=None, header=0)
+        li.append(df)
+    except:
+         print(f' filename {filename}  SEM DADOS ')
+
+if len(li) > 0:
+    dfnok = pd.concat(li, axis=0, ignore_index=True)
+
+# COMMAND ----------
+
+# DBTITLE 1,# Excluir arquivos gerados no processo apos copia para dataframe Spark ...
+# Excluir arquivos gerados no processo apos copia para dataframe Spark
+
+# COMMAND ----------
+
+
+all_files = ['atletafaltantes', 'atlfalt01', 'atlfalt02', 'atlfalt03', 'atlfalt04', 'atlfalt05',
+            'atlfalt06', 'atlfalt07', 'atlfalt08','atlfalt09', 'atlfalt10',
+             'atlfalt01Rej', 'atlfalt02Rej', 'atlfalt03Rej', 'atlfalt04Rej', 'atlfalt05Rej',
+             'atlfalt06Rej', 'atlfalt07Rej', 'atlfalt08Rej', 'atlfalt09Rej', 'atlfalt10Rej',
+             'atlfalt01Rejuf', 'atlfalt02Rejuf', 'atlfalt03Rejuf', 'atlfalt04Rejuf', 'atlfalt05Rejuf',
+             'atlfalt06Rejuf', 'atlfalt07Rejuf', 'atlfalt08Rejuf', 'atlfalt09Rejuf', 'atlfalt10Rejuf']
+
+dir = 'FileStore/' # formata diretorio dos arquivos
+
+ac_del = 0
+
+for arq in all_files:
+    
+    try:
+        filename = dir + arq + '.csv'
+        ac_del += 1
+        dbutils.fs.rm(filename)
+        print(f' filename {filename:>50}   Arq  OK  Excluido Seq........  {ac_del:3}  ')
+    except:
+         print(f' filename {filename:>50}  Arq  nao existe no diretorio.  {ac_del:3} ')
