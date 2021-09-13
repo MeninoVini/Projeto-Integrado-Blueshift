@@ -1,1 +1,114 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ### Importando bibliotecas
 
+# COMMAND ----------
+
+import databricks.koalas as ks
+from pyspark.sql.functions import col
+import lxml
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Variáveis HTML
+
+# COMMAND ----------
+
+url = "https://ge.globo.com/olimpiadas/noticia/quantas-medalhas-o-brasil-ja-ganhou-nas-olimpiadas-2020-veja-quadro.ghtml"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Requisições HTML
+
+# COMMAND ----------
+
+html = ks.read_html(url, encoding="utf-8", header=0)
+
+# COMMAND ----------
+
+html[0]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Convertendo o df para Spark e renomeando
+
+# COMMAND ----------
+
+df = (html[0]).to_spark()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Extraindo modalidades coletivas
+
+# COMMAND ----------
+
+list = ["Seleção brasileira", "Rayssa Leal"]
+df2 = (df.filter(~col("Atleta")
+                 .isin(list))
+                 .replace("Martine Grael e Kahena Kunze","Martine Grael")
+                 .replace("Luisa Stefani e Laura Pigossi","Laura Pigossi"))
+
+# COMMAND ----------
+
+df2.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Importando os atletas com UFs
+
+# COMMAND ----------
+
+link_atletas_uf = "/FileStore/atletasUF.csv"
+
+
+df_atletas = (spark.read
+           .option("sep", ";")
+           .option("encoding","ISO-8859-1")
+           .option("header", True)
+           .option("inferSchema", True)
+           .csv(link_atletas_uf)
+           .dropna())
+  
+
+# COMMAND ----------
+
+df_atletas.display()
+
+# COMMAND ----------
+
+df_final = df2.join(df_atletas,df2.Atleta == df_atletas.Nome, "inner").drop("Nome")
+
+# COMMAND ----------
+
+df_final.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Salvando o arquivo de 6k atletas em .csv no DBFS
+
+# COMMAND ----------
+
+df_final.repartition(1).write.option("header",True).mode("overwrite").option('sep',';').csv("/FileStore/producao/indivmedalhas.csv")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Enviando df_final para o BLOB (Protocolo antigo)
+
+# COMMAND ----------
+
+storage_account_access_key = "yduoSeS07thNv4Xx8qkZQ8vvfV/x2Bzbnb1bCePqkx5SPZI5YXCDAVOzyg0SkYNYu97jwYgdSZYUifnJ1jeRkA=="
+
+spark.conf.set(
+  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  storage_account_access_key)
+
+# COMMAND ----------
+
+dbutils.fs.cp('/FileStore/producao/indivmedalhas.csv/part-00000-tid-4538383781599610037-9bbf2485-8c3e-4689-8551-a7dec3a829c7-978-1-c000.csv','wasbs://conteinergrupoa@storagegrupoa.blob.core.windows.net//indivmedalhas.csv', True)
