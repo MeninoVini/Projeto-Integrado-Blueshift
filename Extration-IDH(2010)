@@ -1,1 +1,111 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ### Importando bibliotecas
 
+# COMMAND ----------
+
+import databricks.koalas as ks
+from pyspark.sql.functions import col
+import lxml
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Variáveis HTML
+
+# COMMAND ----------
+
+url1 = "https://www.br.undp.org/content/brazil/pt/home/idh0/rankings/idhm-uf-2010.html"
+url2 = "https://mundoeducacao.uol.com.br/geografia/estados-brasil.htm"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Requisição HTML
+
+# COMMAND ----------
+
+html1 = ks.read_html(url1, encoding="utf-8", thousands='.', decimal=',')
+html2 = ks.read_html(url2, encoding="utf-8", header=0)
+
+# COMMAND ----------
+
+html1[0]
+
+# COMMAND ----------
+
+html2[0]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Convertendo o df para Spark e filtrando dados necessários
+
+# COMMAND ----------
+
+df_idh = html1[0].to_spark()
+df_uf = html2[0].to_spark()
+
+df2_idh = df_idh.select("Unidade da Federação", 
+                        "IDHM 2010", 
+                        "IDHM Renda 2010", 
+                        "IDHM Longevidade 2010", 
+                        "IDHM Educação 2010").sort("Unidade da Federação")
+
+df2_uf = df_uf.select("Estado", "Sigla").sort("Sigla")
+
+# COMMAND ----------
+
+df2_idh.display()
+
+# COMMAND ----------
+
+df_novo = df2_uf.withColumnRenamed("Sigla","UF")
+
+# COMMAND ----------
+
+df_novo.display()
+
+# COMMAND ----------
+
+rename_list = {"Unidade da Federação":"Estado2", 
+               "IDHM 2010":"idh_2010", 
+               "IDHM Renda 2010":"idhm_renda_2010", 
+               "IDHM Longevidade 2010":"idhm_longevidade_2010", 
+               "IDHM Educação 2010":"idhm_educacao_2010"}
+
+df3_idh = df2_idh.select([col(c).alias(rename_list.get(c, c)) for c in df2_idh.columns])
+
+# COMMAND ----------
+
+df_pronto = df_novo.join(df3_idh,df_novo.Estado == df3_idh.Estado2, "inner").drop("Estado2")
+
+# COMMAND ----------
+
+df_pronto.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Salvando o arquivo de 6k atletas em .csv no DBFS
+
+# COMMAND ----------
+
+df_pronto.repartition(1).write.option("header",True).mode("overwrite").option('sep',';').csv("/FileStore/producao/idhbrasil2010.csv")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Enviando df_final para o BLOB (Protocolo antigo)
+
+# COMMAND ----------
+
+storage_account_access_key = "yduoSeS07thNv4Xx8qkZQ8vvfV/x2Bzbnb1bCePqkx5SPZI5YXCDAVOzyg0SkYNYu97jwYgdSZYUifnJ1jeRkA=="
+
+spark.conf.set(
+  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  storage_account_access_key)
+
+# COMMAND ----------
+
+dbutils.fs.cp('/FileStore/producao/idhbrasil2010.csv/part-00000-tid-2032589566654466678-d74f0dae-5a49-41a8-be94-f91fe09f1dc7-955-1-c000.csv','wasbs://conteinergrupoa@storagegrupoa.blob.core.windows.net//idhbrasil2010.csv', True)
