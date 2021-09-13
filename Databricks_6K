@@ -1,1 +1,107 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ### Importando bibliotecas
 
+# COMMAND ----------
+
+import databricks.koalas as ks
+from pyspark.sql.functions import col
+import lxml
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Variáveis HTML
+
+# COMMAND ----------
+
+url1 = "https://www.in.gov.br/en/web/dou/-/portaria-mc-n-629-de-12-de-maio-de-2021-319600420"
+url2 = "https://www.in.gov.br/en/web/dou/-/portaria-mc-n-629-de-12-de-maio-de-2021-anexo-unico-continuacao-319559187"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Requisições HTML
+
+# COMMAND ----------
+
+html1 = ks.read_html(url1, encoding="utf-8")
+html2 = ks.read_html(url2, encoding="utf-8")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Renomeando colunas de todas as tabelas
+
+# COMMAND ----------
+
+n_columns1 = len(html1[0].columns)
+for i in range(len(html1)-1):
+  html1[i].columns = range(n_columns1)
+
+# COMMAND ----------
+
+n_columns2 = len(html2[0].columns)
+for i in range(len(html2)-1):
+  html2[i].columns = range(n_columns2)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Concatenando todas as tabelas
+
+# COMMAND ----------
+
+concatenado = ks.concat([html1[0],html1[1],html1[2],html1[3],html1[4],html1[5],html1[6],html1[7],html1[8],html1[9],html1[10],html1[11],html1[12],html1[13],html1[14],html1[15],html1[16],html1[17],html2[0],html2[1],html2[2],html2[3],html2[4],html2[5],html2[6],html2[7],html1[18],html1[19],html1[20],html1[21],html1[22],html1[23],html1[24],html1[25],html1[26],html1[27],html1[28],html1[29],html1[30],html1[31],html1[32],html1[33],html1[34],html1[35],html1[36],html1[37],html1[38],html1[39],html1[40],html1[41],html1[42],html1[43],html1[44],html1[45],html1[46],html1[47],html1[48],html1[49],html1[50],html1[51],html1[52],html1[53],html1[54],html1[55],html1[56],html1[57],html1[58],html1[59],html1[60],html1[61],html1[62],html1[63],html1[64],html1[65],html1[66],html1[67],html1[68],html1[69],html1[70],html1[71],html1[72],html1[73],html1[74],html1[75],html1[76]])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Convertendo o df para Spark e renomeando
+
+# COMMAND ----------
+
+df = concatenado.to_spark()
+
+rename_list = {"0":"N_Ordem",
+               "1":"Nome",
+               "2":"CPF",
+               "3":"Modalidade",
+               "4":"Classificacao",
+               "5":"Coletividade",
+               "6":"Categoria",
+               "7": "UF",
+               "8":"Cidade"}
+
+df2 = df.select([col(c).alias(rename_list.get(c, c)) for c in df.columns])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Excluindo as linhas que não são dados
+
+# COMMAND ----------
+
+df3 = df2.where((col("N_Ordem") != "Nº de Ordem"))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Analisando o df3
+
+# COMMAND ----------
+
+df3.display()
+
+# COMMAND ----------
+
+df3.count()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Salvando o arquivo de 6k atletas em .csv no DBFS
+
+# COMMAND ----------
+
+df3.repartition(1).write.option("header",True).mode("overwrite").option('sep',';').csv("/FileStore/producao/atletas6k.csv")
