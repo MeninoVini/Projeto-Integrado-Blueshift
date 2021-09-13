@@ -1,1 +1,149 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Objetivos principais
+# MAGIC 1. Concatenar os arquivos finais dos notebooks "Extracao_1k" e "Extracao_6k"
+# MAGIC 1. Geração de um dataframe final com 7K atletas
+# MAGIC 1. Tratamento dos dados
+# MAGIC 1. Análise descritiva
 
+# COMMAND ----------
+
+from pyspark.sql.functions import col, when
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Carregando e analisando o arquivo de 6K atletas
+
+# COMMAND ----------
+
+link_6k = "/FileStore/producao/atletas6k.csv"
+
+
+df_6k = (spark.read
+           .option("sep", ";")
+           .option("header", True)
+           .option("inferSchema", True)
+           .csv(link_6k))
+
+# COMMAND ----------
+
+df_6k.display()
+df_6k.printSchema()
+
+# COMMAND ----------
+
+df_6k.count()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Carregando e analisando o arquivo de 1K atletas
+
+# COMMAND ----------
+
+link_1k = "/FileStore/producao/atletas1K.csv"
+
+df_1k = (spark.read
+           .option("sep", ";")
+           .option("header", True)
+           .option("inferSchema", True)
+           .csv(link_1k))
+
+# COMMAND ----------
+
+df_1k.display()
+df_1k.printSchema()
+
+# COMMAND ----------
+
+df_1k.count()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### Concatenando os dataframes
+
+# COMMAND ----------
+
+df_7k = df_6k.union(df_1k).sort("N_Ordem")
+
+# COMMAND ----------
+
+df_7k.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Tratamentos dos dados
+
+# COMMAND ----------
+
+df_final = df_7k.select("N_Ordem", "Modalidade", "UF")
+
+# COMMAND ----------
+
+df_final.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Categorias de bolsa / Valores investidos (por N_Ordem)
+# MAGIC - 1 - 366 -> Olimpico/Palímpico(R$1850)
+# MAGIC - 367 - 1566 -> Internacional (R$1850)
+# MAGIC - 1567 - 6425 -> Atleta Nacional (R$925)
+# MAGIC - 6426 - 6741 -> Atleta de Base (R$370)
+# MAGIC - 6742 - 7197 -> Atleta Estudantil (R$370)
+
+# COMMAND ----------
+
+df_tipo = (df_final.withColumn("Tipo_Bolsa", when((col("N_Ordem") <= 366), "Olímpico/Paralímpico")
+                                              .when((col("N_Ordem") >= 367) & (col("N_Ordem") <= 1566), "Atleta Internacional")
+                                              .when((col("N_Ordem") >= 1567) & (col("N_Ordem") <= 6425), "Atleta Nacional")
+                                              .when((col("N_Ordem") >= 6426) & (col("N_Ordem") <= 6741), "Atleta de Base")
+                                              .when((col("N_Ordem") >= 6742) & (col("N_Ordem") <= 7197), "Atleta Estudantil")
+                                              .otherwise("0"))
+          .withColumn("Valor_Bolsa", when((col("Tipo_Bolsa") == "Olímpico/Paralímpico"), 3100)
+                                     .when((col("Tipo_Bolsa") == "Atleta Internacional"), 1850)
+                                     .when((col("Tipo_Bolsa") == "Atleta Nacional"), 925)
+                                     .when((col("Tipo_Bolsa") == "Atleta de Base"), 370)
+                                     .when((col("Tipo_Bolsa") == "Atleta Estudantil"), 370)
+                                     .otherwise("0"))
+          )
+
+# COMMAND ----------
+
+df_tipo.display()
+
+# COMMAND ----------
+
+Lista_Paralimpicos = ['Judô de Cegos', 'Natação Paralímpica', 'Natação Paralímpica','Snowboard Paralímpico', 'Paraciclismo Pista', 'Cross Country Paralímpico', 'Vôlei Sentado', 'Tênis de Mesa Paralímpico', 'Basquete em CR', 'Goalball', 'Rugby em CR', 'Futebol de 5', 'Parabadminton', 'Bocha Paralímpica', 'Tênis em CR', 'Esgrima em CR', 'Paraciclismo Estrada', 'Tiro com Arco Paralímpico', 'Paracanoagem', 'Remo Paralímpico', 'Parataekwondo', 'Carabina Paralímpica', 'Pistola Paralímpica', 'Adestramento Paraesquetre', 'Paratriathlon', 'Cross Country Paralímpico (Rollerski)', 'Atletismo Paralímpico']
+
+# COMMAND ----------
+
+df_pronto = df_tipo.filter(~col("Modalidade").isin(Lista_Paralimpicos))
+
+# COMMAND ----------
+
+df_pronto.count()
+
+# COMMAND ----------
+
+df_pronto.repartition(1).write.option("header",True).mode("overwrite").option('sep',';').csv("/FileStore/producao/atletas7k.csv")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Enviando df_final para o BLOB (Protocolo antigo)
+
+# COMMAND ----------
+
+storage_account_access_key = "yduoSeS07thNv4Xx8qkZQ8vvfV/x2Bzbnb1bCePqkx5SPZI5YXCDAVOzyg0SkYNYu97jwYgdSZYUifnJ1jeRkA=="
+
+spark.conf.set(
+  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  storage_account_access_key)
+
+# COMMAND ----------
+
+dbutils.fs.cp('/FileStore/producao/atletas7k.csv/part-00000-tid-5895703484245669426-92229895-2429-466b-b3d7-337d27c9a086-888-1-c000.csv','wasbs://conteinergrupoa@storagegrupoa.blob.core.windows.net//atletas7k.csv', True)
