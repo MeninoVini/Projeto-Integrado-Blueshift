@@ -33,9 +33,9 @@ df_final.repartition(1).write.option("header",True).mode("overwrite").option('se
 storage_account_access_key = ""
 
 spark.conf.set(
-  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  "",
   storage_account_access_key)
 
 # COMMAND ----------
 
-dbutils.fs.cp('/FileStore/producao/estados_sem_acento.csv/part-00000-tid-4011679188137767242-ffb0e43f-63b5-4e78-bc2a-eccad150766c-8-1-c000.csv','wasbs://conteinergrupoa@storagegrupoa.blob.core.windows.net//estados_sem_acento.csv', True)
+dbutils.fs.cp('/FileStore/producao/estados_sem_acento.csv/part-00000-tid-4011679188137767242-ffb0e43f-63b5-4e78-bc2a-eccad150766c-8-1-c000.csv','blobcontainer', True)
