@@ -138,12 +138,12 @@ df_pronto.repartition(1).write.option("header",True).mode("overwrite").option('s
 
 # COMMAND ----------
 
-storage_account_access_key = "yduoSeS07thNv4Xx8qkZQ8vvfV/x2Bzbnb1bCePqkx5SPZI5YXCDAVOzyg0SkYNYu97jwYgdSZYUifnJ1jeRkA=="
+storage_account_access_key = ""
 
 spark.conf.set(
-  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  "",
   storage_account_access_key)
 
 # COMMAND ----------
 
-dbutils.fs.cp('/FileStore/producao/atletas7k.csv/part-00000-tid-5895703484245669426-92229895-2429-466b-b3d7-337d27c9a086-888-1-c000.csv','wasbs://conteinergrupoa@storagegrupoa.blob.core.windows.net//atletas7k.csv', True)
+dbutils.fs.cp('/FileStore/producao/atletas7k.csv/part-00000-tid-5895703484245669426-92229895-2429-466b-b3d7-337d27c9a086-888-1-c000.csv','blobcontainer', True)
