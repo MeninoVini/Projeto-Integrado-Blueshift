@@ -103,10 +103,10 @@ df_final.repartition(1).write.option("header",True).mode("overwrite").option('se
 
 # COMMAND ----------
 
-storage_account_access_key = "yduoSeS07thNv4Xx8qkZQ8vvfV/x2Bzbnb1bCePqkx5SPZI5YXCDAVOzyg0SkYNYu97jwYgdSZYUifnJ1jeRkA=="
+storage_account_access_key = ""
 
 spark.conf.set(
-  "fs.azure.account.key.storagegrupoa.blob.core.windows.net",
+  "",
   storage_account_access_key)
 
 # COMMAND ----------
